@@ -1,12 +1,14 @@
 import unittest
 import requests
-from requests_file import FileAdapter
 
 import os, stat
 import tempfile
 import shutil
 import platform
 
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from requests_file import FileAdapter
 
 class FileRequestTestCase(unittest.TestCase):
     def setUp(self):
