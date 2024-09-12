@@ -5,6 +5,7 @@ import os, stat
 import tempfile
 import shutil
 import platform
+import time
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -197,3 +198,49 @@ class FileRequestTestCase(unittest.TestCase):
         self.assertEqual(response.headers["Content-Length"], len(testdata))
         self.assertEqual(response.content, testdata)
         response.close()
+    
+    def test_caching(self):
+        # Test that caching works by accessing the same file twice
+        file_path = os.path.abspath(__file__)
+        url = f"file://{self._pathToURL(file_path)}"
+
+        # First request
+        start_time = time.time()
+        response1 = self._session.get(url)
+        first_request_time = time.time() - start_time
+
+        # Second request (should be faster due to caching)
+        start_time = time.time()
+        response2 = self._session.get(url)
+        second_request_time = time.time() - start_time
+
+        self.assertEqual(response1.content, response2.content)
+        self.assertLess(second_request_time, first_request_time)
+
+        response1.close()
+        response2.close()
+
+    def test_rate_limiting(self):
+        # Test that rate limiting works
+        file_path = os.path.abspath(__file__)
+        url = f"file://{self._pathToURL(file_path)}"
+
+        # Create a new session with a stricter rate limit
+        rate_limited_session = requests.Session()
+        rate_limited_session.mount("file://", FileAdapter(rate_limit=2, rate_interval=1))
+
+        # First two requests should succeed
+        response1 = rate_limited_session.get(url)
+        response2 = rate_limited_session.get(url)
+
+        self.assertEqual(response1.status_code, requests.codes.ok)
+        self.assertEqual(response2.status_code, requests.codes.ok)
+
+        # Third request should fail due to rate limiting
+        with self.assertRaises(ValueError) as cm:
+            rate_limited_session.get(url)
+
+        self.assertIn("Rate limit exceeded", str(cm.exception))
+
+        response1.close()
+        response2.close()
