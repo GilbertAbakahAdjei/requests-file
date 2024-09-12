@@ -6,14 +6,31 @@ import os
 import stat
 import locale
 import io
-
+import time
+from collections import defaultdict
+from functools import lru_cache
 from six import BytesIO
 
-
 class FileAdapter(BaseAdapter):
-    def __init__(self, set_content_length=True):
+    def __init__(self, set_content_length=True, cache_size=128, rate_limit=10, rate_interval=1):
         super(FileAdapter, self).__init__()
         self._set_content_length = set_content_length
+        self._cache_size = cache_size
+        self._rate_limit = rate_limit
+        self._rate_interval = rate_interval
+        self._request_times = defaultdict(list)
+
+    @lru_cache(maxsize=128)
+    def _cached_file_read(self, path):
+        with io.open(path, 'rb') as f:
+            return f.read()
+
+    def _check_rate_limit(self, url):
+        now = time.time()
+        self._request_times[url] = [t for t in self._request_times[url] if now - t < self._rate_interval]
+        if len(self._request_times[url]) >= self._rate_limit:
+            raise ValueError(f"Rate limit exceeded for {url}")
+        self._request_times[url].append(now)
 
     def send(self, request, **kwargs):
         """Wraps a file, described in request, in a Response object.
@@ -32,6 +49,8 @@ class FileAdapter(BaseAdapter):
         # Reject URLs with a hostname component
         if url_parts.netloc and url_parts.netloc != "localhost":
             raise ValueError("file: URLs with hostname components are not permitted")
+
+        self._check_rate_limit(request.url)
 
         resp = Response()
 
